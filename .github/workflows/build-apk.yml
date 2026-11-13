@@ -1,9 +1,10 @@
-name: Build WA SmartFlow Ultra SmartReturn APK - diagnostics
+name: Build WA SmartFlow Ultra 2.5.1 FIXED APK
 
 on:
   workflow_dispatch:
   push:
     paths:
+      - 'WA-SmartFlow-Ultra-2.5.1-FIXED-Android.zip'
       - 'WA-SmartFlow-Ultra-SmartReturn-Android.zip'
       - '.github/workflows/build-apk.yml'
 
@@ -15,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -30,6 +31,7 @@ jobs:
           packages: ''
 
       - name: Install Android API 35
+        shell: bash
         run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Set up Gradle 8.9
@@ -37,70 +39,94 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Extract Android project and verify files
+      - name: Unpack project and apply confirmed Java compile fix
         shell: bash
         run: |
           set -euo pipefail
-          test -f WA-SmartFlow-Ultra-SmartReturn-Android.zip || { echo 'ERROR: Project ZIP not found in repository root'; exit 1; }
           mkdir -p source
-          unzip -q WA-SmartFlow-Ultra-SmartReturn-Android.zip -d source
-          test -f source/WA-SmartFlow-Ultra-SmartReturn-Android/settings.gradle || { echo 'ERROR: settings.gradle missing or wrong ZIP path'; exit 1; }
-          test -f source/WA-SmartFlow-Ultra-SmartReturn-Android/app/build.gradle || { echo 'ERROR: app/build.gradle missing'; exit 1; }
-          echo 'Java:'
-          java -version
-          echo 'Gradle:'
-          gradle --version
+          if [ -f WA-SmartFlow-Ultra-2.5.1-FIXED-Android.zip ]; then
+            echo 'Using optional updated source ZIP.'
+            unzip -q WA-SmartFlow-Ultra-2.5.1-FIXED-Android.zip -d source
+          elif [ -f WA-SmartFlow-Ultra-SmartReturn-Android.zip ]; then
+            echo 'Using previously uploaded SmartReturn ZIP; applying fix during build.'
+            unzip -q WA-SmartFlow-Ultra-SmartReturn-Android.zip -d source
+          else
+            echo 'ERROR: Neither the existing SmartReturn ZIP nor the optional fixed ZIP was found in repository root.'
+            exit 1
+          fi
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root=Path('source/WA-SmartFlow-Ultra-SmartReturn-Android')
+          java=root/'app/src/main/java/com/smartflow/ultra/ScheduleLaunchActivity.java'
+          assert java.is_file(), f'Missing: {java}'
+          source=java.read_text(encoding='utf8')
+          old='AutoAssistState.queue(this,item,lockedAtDue)'
+          new='AutoAssistState.queue(this,item,lockedAtDue,WhatsAppAssistService.previousAppPackage())'
+          if old in source:
+              java.write_text(source.replace(old,new),encoding='utf8')
+              print('FIXED: ScheduleLaunchActivity.java 3-arg queue() -> 4-arg queue()')
+          else:
+              assert 'AutoAssistState.queue(this,item,lockedAtDue,' in source, 'Unexpected queue() call: review ScheduleLaunchActivity.java'
+              print('PASS: queue() call is already fixed')
+          state=(root/'app/src/main/java/com/smartflow/ultra/AutoAssistState.java').read_text(encoding='utf8')
+          assert 'queue(Context c,JSONObject item,boolean wasLocked,String previousPackage)' in state
+          for f in (root/'app/src/main').rglob('*.xml'):
+              ET.parse(f)
+          assert (root/'app/src/main/assets/index.html').exists()
+          build=root/'app/build.gradle'
+          data=build.read_text(encoding='utf8')
+          if 'versionCode 6' in data:
+              build.write_text(data.replace('versionCode 6','versionCode 7').replace('2.5.0-smartreturn-silenttimer','2.5.1-smartreturn-compilefix'),encoding='utf8')
+          check=root/'check_source.py'
+          if check.exists():
+              import subprocess,sys
+              subprocess.run([sys.executable,str(check)],check=True)
+          print('Source preflight passed; starting Android compile.')
+          PYFIX
 
-      - name: Compile debug APK (save full log)
-        id: build
+      - name: Compile FIXED debug APK
+        id: compile
         shell: bash
         run: |
           set -o pipefail
           gradle -p source/WA-SmartFlow-Ultra-SmartReturn-Android \
-            --no-daemon --console=plain --stacktrace :app:assembleDebug 2>&1 | tee build.log
+            --no-daemon --console=plain --warning-mode=none \
+            :app:assembleDebug 2>&1 | tee build.log
 
-      - name: Show the real build error in job summary
-        if: ${{ always() && steps.build.outcome == 'failure' }}
+      - name: Show compiler errors if build fails
+        if: ${{ always() && steps.compile.outcome == 'failure' }}
         shell: bash
         run: |
           python3 - <<'PY'
           import os, re
           from pathlib import Path
-          log = Path('build.log').read_text(encoding='utf-8', errors='replace').splitlines()
-          start = next((i for i,line in enumerate(log) if line.strip() == '* What went wrong:'), None)
-          error_lines = []
-          if start is not None:
-              for line in log[start:min(len(log),start+80)]:
-                  if line.strip() in ('* Try:', '* Exception is:', '* Get more help at https://help.gradle.org.'):
-                      break
-                  error_lines.append(line)
-          patterns = [r'\berror:',r'\bERROR:',r'AAPT:',r'Execution failed for task',r'Could not resolve',r'Could not find',r'Failed to',r'FAILURE:']
-          matches = [f'{i+1}: {line}' for i,line in enumerate(log) if any(re.search(p,line,re.I) for p in patterns)]
-          report = '\n'.join(error_lines + ['','Important matching lines:'] + matches[:60]).strip()
-          if not report:
-              report = '\n'.join(log[-90:])
-          print('=== IMPORTANT ERROR SUMMARY ===')
-          print(report[:20000])
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
-              f.write('## APK build failure — relevant Gradle error\n\n')
-              f.write('Open **Summary** for this run, or download the full `SmartFlow-Build-Log` artifact.\n\n')
-              f.write('```text\n' + report[:20000].replace('```','` ` `') + '\n```\n')
+          lines=Path('build.log').read_text(encoding='utf8',errors='replace').splitlines()
+          selected=set()
+          for i,s in enumerate(lines):
+              if re.search(r'(error:|AAPT:|What went wrong:|Execution failed for task|Could not (resolve|find)|FAILURE: Build failed)',s,re.I):
+                  selected.update(range(max(0,i-3),min(len(lines),i+5)))
+          report='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(selected))[:25000]
+          if not report: report='\n'.join(lines[-80:])
+          print(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf8') as f:
+              f.write('## Java compilation errors\n\n```text\n'+report.replace('```','` ` `')+'\n```\n')
           PY
 
-      - name: Upload full build log (even on failure)
+      - name: Upload build log
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: SmartFlow-Build-Log
+          name: SmartFlow-2.5.1-Build-Log
           path: build.log
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
-      - name: Upload APK (only on success)
+      - name: Upload APK
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: WA-SmartFlow-Ultra-SmartReturn-APK
+          name: WA-SmartFlow-Ultra-2.5.1-APK
           path: source/WA-SmartFlow-Ultra-SmartReturn-Android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

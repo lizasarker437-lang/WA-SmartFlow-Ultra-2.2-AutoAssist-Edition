@@ -1,10 +1,10 @@
-name: Build SmartFlow Ultra PinAssist APK
+name: Build WA SmartFlow Ultra SmartReturn APK
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'WA-SmartFlow-Ultra-PinAssist-Android.zip'
+      - 'WA-SmartFlow-Ultra-SmartReturn-Android.zip'
       - '.github/workflows/build-apk.yml'
 permissions:
   contents: read
@@ -20,13 +20,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Configure Android SDK (no removed tools package)
+      - name: Configure Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: ''
-      - name: Install Android SDK API 35
+      - name: Install Android 35
         run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Install Gradle 8.9
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -34,16 +34,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f WA-SmartFlow-Ultra-PinAssist-Android.zip
+          test -f WA-SmartFlow-Ultra-SmartReturn-Android.zip
           mkdir -p source
-          unzip -q WA-SmartFlow-Ultra-PinAssist-Android.zip -d source
-          test -f source/WA-SmartFlow-Ultra-PinAssist-Android/settings.gradle
-      - name: Compile Debug APK
-        run: gradle -p source/WA-SmartFlow-Ultra-PinAssist-Android --no-daemon --stacktrace :app:assembleDebug
-      - name: Upload APK artifact
+          unzip -q WA-SmartFlow-Ultra-SmartReturn-Android.zip -d source
+          test -f source/WA-SmartFlow-Ultra-SmartReturn-Android/settings.gradle
+      - name: Compile debug APK
+        run: gradle -p source/WA-SmartFlow-Ultra-SmartReturn-Android --no-daemon --stacktrace :app:assembleDebug
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: WA-SmartFlow-Ultra-PinAssist-APK
-          path: source/WA-SmartFlow-Ultra-PinAssist-Android/app/build/outputs/apk/debug/app-debug.apk
+          name: WA-SmartFlow-Ultra-SmartReturn-APK
+          path: source/WA-SmartFlow-Ultra-SmartReturn-Android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

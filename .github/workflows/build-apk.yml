@@ -1,72 +1,49 @@
-name: Build WA SmartFlow Ultra AutoAssist APK
+name: Build SmartFlow Ultra PinAssist APK
 
-# Upload the source ZIP at the repository root, without extracting it.
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'WA-SmartFlow-Ultra-AutoAssist-Android.zip'
+      - 'WA-SmartFlow-Ultra-PinAssist-Android.zip'
       - '.github/workflows/build-apk.yml'
-
 permissions:
   contents: read
-
 jobs:
   build-apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configure Java 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      # setup-android@v3 may request the removed "tools" SDK package.
-      # v4 installs command-line tools; packages: '' skips optional packages.
-      - name: Configure Android SDK (fixed)
+      - name: Configure Android SDK (no removed tools package)
         uses: android-actions/setup-android@v4
         with:
           packages: ''
-
-      - name: Install Android API 35
-        shell: bash
-        run: |
-          sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
-          test -f "${ANDROID_SDK_ROOT}/platforms/android-35/android.jar"
-          echo 'Android SDK API 35 installed successfully.'
-
-      - name: Configure Gradle 8.9
+      - name: Install Android SDK API 35
+        run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Install Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
-      - name: Extract Android project ZIP
+      - name: Extract Android project
         shell: bash
         run: |
           set -euo pipefail
-          ZIP='WA-SmartFlow-Ultra-AutoAssist-Android.zip'
-          test -f "$ZIP" || { echo "Missing $ZIP at repository root"; exit 1; }
+          test -f WA-SmartFlow-Ultra-PinAssist-Android.zip
           mkdir -p source
-          unzip -q "$ZIP" -d source
-          PROJECT='source/WA-SmartFlow-Ultra-AutoAssist-Android'
-          test -f "$PROJECT/settings.gradle" || { echo 'Missing settings.gradle in ZIP'; exit 1; }
-          test -f "$PROJECT/app/src/main/AndroidManifest.xml" || { echo 'Missing AndroidManifest.xml in ZIP'; exit 1; }
-          echo 'Android project extracted successfully.'
-
-      - name: Build debug APK
-        shell: bash
-        run: |
-          gradle -p source/WA-SmartFlow-Ultra-AutoAssist-Android --no-daemon --stacktrace :app:assembleDebug
-
-      - name: Upload Android APK
+          unzip -q WA-SmartFlow-Ultra-PinAssist-Android.zip -d source
+          test -f source/WA-SmartFlow-Ultra-PinAssist-Android/settings.gradle
+      - name: Compile Debug APK
+        run: gradle -p source/WA-SmartFlow-Ultra-PinAssist-Android --no-daemon --stacktrace :app:assembleDebug
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WA-SmartFlow-Ultra-AutoAssist-APK
-          path: source/WA-SmartFlow-Ultra-AutoAssist-Android/app/build/outputs/apk/debug/app-debug.apk
+          name: WA-SmartFlow-Ultra-PinAssist-APK
+          path: source/WA-SmartFlow-Ultra-PinAssist-Android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
